@@ -46,6 +46,7 @@ const SYNC_STATE_VERSION = 1;
 const SHARED_STATE_URL = import.meta.env.VITE_SHARED_STATE_URL?.trim() || '';
 const SHARED_STATE_TOKEN = import.meta.env.VITE_SHARED_STATE_TOKEN?.trim() || '';
 const SHARED_STATE_METHOD = (import.meta.env.VITE_SHARED_STATE_METHOD?.trim() || 'PUT').toUpperCase();
+const SYNC_DEBOUNCE_MS = 600;
 
 type SyncMethod = 'PUT' | 'POST' | 'PATCH';
 const allowedSyncMethods: SyncMethod[] = ['PUT', 'POST', 'PATCH'];
@@ -194,13 +195,13 @@ const parseSharedEnvelope = (payload: unknown): SharedStateEnvelope | null => {
     if (!envelope.state || typeof envelope.state !== 'object') return null;
     return {
       version: typeof envelope.version === 'number' ? envelope.version : SYNC_STATE_VERSION,
-      updatedAt: typeof envelope.updatedAt === 'string' ? envelope.updatedAt : new Date(0).toISOString(),
+      updatedAt: typeof envelope.updatedAt === 'string' ? envelope.updatedAt : '',
       state: envelope.state as PersistedStateSlice,
     };
   }
   return {
     version: SYNC_STATE_VERSION,
-    updatedAt: new Date(0).toISOString(),
+    updatedAt: '',
     state: payload as PersistedStateSlice,
   };
 };
@@ -240,27 +241,28 @@ const pushSharedState = async (state: AppState): Promise<void> => {
   }
 };
 
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
-let isApplyingRemoteState = false;
-let isPushInFlight = false;
-let hasQueuedPush = false;
-
 export const useStore = create<AppState>()(
   persist(
     (rawSet, get) => {
+      let syncTimer: ReturnType<typeof setTimeout> | null = null;
+      let isPushInFlight = false;
+      let hasQueuedPush = false;
+
       const flushSharedPush = async () => {
         if (!isCloudSyncEnabled() || isPushInFlight) return;
         isPushInFlight = true;
-        await pushSharedState(get());
-        isPushInFlight = false;
-        if (hasQueuedPush) {
-          hasQueuedPush = false;
-          await flushSharedPush();
+        try {
+          do {
+            hasQueuedPush = false;
+            await pushSharedState(get());
+          } while (hasQueuedPush);
+        } finally {
+          isPushInFlight = false;
         }
       };
 
       const queueSharedPush = () => {
-        if (!isCloudSyncEnabled() || isApplyingRemoteState) return;
+        if (!isCloudSyncEnabled()) return;
         if (syncTimer) clearTimeout(syncTimer);
         syncTimer = setTimeout(() => {
           if (isPushInFlight) {
@@ -268,19 +270,22 @@ export const useStore = create<AppState>()(
             return;
           }
           void flushSharedPush();
-        }, 600);
+        }, SYNC_DEBOUNCE_MS);
       };
 
       const set: typeof rawSet = (partial, replace) => {
         let hasMutated = false;
         rawSet((previous) => {
           const update = typeof partial === 'function' ? partial(previous) : partial;
-          if (update === previous || update == null) return previous;
+          if (update === previous || update === null || update === undefined) return previous;
           hasMutated = true;
           if (replace) return update;
           const patch = update as Partial<AppState>;
-          if ('lastDataUpdateAt' in patch) return patch;
-          return { ...patch, lastDataUpdateAt: new Date().toISOString() };
+          return {
+            ...previous,
+            ...patch,
+            lastDataUpdateAt: patch.lastDataUpdateAt ?? new Date().toISOString(),
+          };
         }, replace);
         if (hasMutated) queueSharedPush();
       };
@@ -1049,7 +1054,7 @@ const hydrateFromSharedState = async () => {
   if (!remote?.state) return;
 
   const local = useStore.getState();
-  const remoteTimestamp = Math.max(asTimestamp(remote.updatedAt), asTimestamp(remote.state.lastDataUpdateAt));
+  const remoteTimestamp = asTimestamp(remote.state.lastDataUpdateAt ?? remote.updatedAt);
   const localTimestamp = asTimestamp(local.lastDataUpdateAt);
 
   if (remoteTimestamp <= localTimestamp) {
@@ -1059,12 +1064,10 @@ const hydrateFromSharedState = async () => {
     return;
   }
 
-  isApplyingRemoteState = true;
   useStore.setState({
     ...remote.state,
-    lastDataUpdateAt: remote.state.lastDataUpdateAt || remote.updatedAt,
+    lastDataUpdateAt: remote.state.lastDataUpdateAt ?? remote.updatedAt,
   });
-  isApplyingRemoteState = false;
 };
 
 if (typeof window !== 'undefined') {
