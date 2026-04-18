@@ -158,7 +158,10 @@ export default function AdminPanel() {
     if (!trimmedMessage) return;
     store.addNotification(trimmedMessage, messageType);
     const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(trimmedMessage)}`;
-    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    const popup = window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      alert(t('whatsappPopupBlocked'));
+    }
     setMessageText('');
     setShowSendMessage(false);
   };
