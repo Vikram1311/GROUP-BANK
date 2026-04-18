@@ -163,10 +163,10 @@ export default function AdminPanel() {
     const popup = window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
     if (!popup) {
       setMessageSendFeedback(t('whatsappPopupBlocked'));
+      setMessageText('');
       return;
     }
     setMessageText('');
-    setMessageSendFeedback('');
     setShowSendMessage(false);
   };
 
