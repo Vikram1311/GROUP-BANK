@@ -99,6 +99,29 @@ export default function AdminPanel() {
   const adminInterestShare = adminMember ? store.getMemberInterestShare(adminMember.id) : 0;
   const adminTotalEarnings = adminPenaltyShare + adminInterestShare;
 
+  const normalizeWhatsappPhone = (mobile: string) => {
+    const digits = mobile.replace(/\D/g, '');
+    if (digits.length === 10) return `91${digits}`;
+    if (digits.length === 12 && digits.startsWith('91')) return digits;
+    return digits;
+  };
+
+  const getMessageRecipientPhones = (type: 'broadcast' | 'loan_holder') => {
+    const loanHolderIds = new Set(
+      store.loans
+        .filter(l => l.status === 'active' || l.status === 'pending')
+        .map(l => l.memberId),
+    );
+    const targetMembers = type === 'broadcast'
+      ? nonAdminMembers
+      : nonAdminMembers.filter(m => loanHolderIds.has(m.id));
+    return Array.from(new Set(
+      targetMembers
+        .map(m => normalizeWhatsappPhone(m.mobile))
+        .filter(phone => phone.length >= 10),
+    ));
+  };
+
   const handleAddMember = () => {
     if (!newName || !newMobile || !newJoiningDate) return;
     store.addMember(newName, newMobile, newJoiningDate);
@@ -154,8 +177,14 @@ export default function AdminPanel() {
   };
 
   const handleSendMessage = () => {
-    if (!messageText) return;
-    store.addNotification(messageText, messageType);
+    const trimmedMessage = messageText.trim();
+    if (!trimmedMessage) return;
+    store.addNotification(trimmedMessage, messageType);
+    const recipientPhones = getMessageRecipientPhones(messageType);
+    const whatsappUrl = recipientPhones.length === 1
+      ? `https://api.whatsapp.com/send?phone=${recipientPhones[0]}&text=${encodeURIComponent(trimmedMessage)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(trimmedMessage)}`;
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
     setMessageText('');
     setShowSendMessage(false);
   };
@@ -780,6 +809,7 @@ export default function AdminPanel() {
               <button onClick={() => setMessageType('loan_holder')} className={`flex-1 py-2 rounded-xl text-sm ${messageType === 'loan_holder' ? 'bg-blue-500 text-white' : 'bg-white/10 text-gray-400'}`}>{t('loanHolders')}</button>
             </div>
             <textarea value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder={t('message')} rows={4} className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none" />
+            <p className="text-xs text-gray-400">{t('whatsappLinkedHint')}</p>
             <button onClick={handleSendMessage} className={`${btnP} w-full py-3`}><Send className="w-4 h-4 inline mr-1" /> {t('sendMessage')}</button>
           </div>
         </Modal>
