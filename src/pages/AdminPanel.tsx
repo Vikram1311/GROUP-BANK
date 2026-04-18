@@ -154,8 +154,11 @@ export default function AdminPanel() {
   };
 
   const handleSendMessage = () => {
-    if (!messageText) return;
-    store.addNotification(messageText, messageType);
+    const trimmedMessage = messageText.trim();
+    if (!trimmedMessage) return;
+    store.addNotification(trimmedMessage, messageType);
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(trimmedMessage)}`;
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
     setMessageText('');
     setShowSendMessage(false);
   };
@@ -774,6 +777,7 @@ export default function AdminPanel() {
               <button onClick={() => setMessageType('loan_holder')} className={`flex-1 py-2 rounded-xl text-sm ${messageType === 'loan_holder' ? 'bg-blue-500 text-white' : 'bg-white/10 text-gray-400'}`}>{t('loanHolders')}</button>
             </div>
             <textarea value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder={t('message')} rows={4} className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none" />
+            <p className="text-xs text-gray-400">{t('whatsappLinkedHint')}</p>
             <button onClick={handleSendMessage} className={`${btnP} w-full py-3`}><Send className="w-4 h-4 inline mr-1" /> {t('sendMessage')}</button>
           </div>
         </Modal>
