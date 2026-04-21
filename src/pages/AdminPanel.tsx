@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, generateId, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
 import { calculateLoanDetails } from '../utils/calculations';
-import { downloadCSV } from '../utils/download';
 import {
   Users, IndianRupee, TrendingUp, Wallet, LogOut, Plus, Trash2, Edit3, Download,
   Send, Settings, Eye, CheckCircle, XCircle, Banknote,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react';
 
 type AdminTab = 'dashboard' | 'members' | 'loans' | 'contributions' | 'messages' | 'settings';
+const URL_REVOKE_DELAY_MS = 5000;
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
   return (
@@ -190,9 +190,28 @@ export default function AdminPanel() {
     setShowSendMessage(false);
   };
 
-  const handleExportCSV = (memberId?: string) => {
+  const handleExportCSV = async (memberId?: string) => {
     const csv = memberId ? store.exportMemberCSV(memberId) : store.exportMonthlyCSV(selectedMonth);
-    downloadCSV(csv, memberId ? 'member_report.csv' : `monthly_report_${selectedMonth}.csv`);
+    const fileName = memberId ? 'member_report.csv' : `monthly_report_${selectedMonth}.csv`;
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const file = new File([blob], fileName, { type: 'text/csv;charset=utf-8;' });
+    const canShareFiles = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
+    if (navigator.share && canShareFiles) {
+      try {
+        await navigator.share({ files: [file] });
+        return;
+      } catch {
+        // Fallback to direct download below when share is cancelled/unsupported.
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), URL_REVOKE_DELAY_MS);
   };
 
   const getMonths = () => {
@@ -216,7 +235,7 @@ export default function AdminPanel() {
   const btnPu = 'relative overflow-hidden rounded-xl font-semibold text-white transition-all duration-200 active:scale-95 transform bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 shadow-lg shadow-purple-500/30';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       {/* Header */}
       <header
         className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 shadow-2xl sticky top-0 z-50"
@@ -244,7 +263,7 @@ export default function AdminPanel() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-3 pb-20">
+      <div className="max-w-7xl mx-auto px-4 py-5 pb-24 md:pb-28">
         {/* Dashboard */}
         {activeTab === 'dashboard' && (
           <>
