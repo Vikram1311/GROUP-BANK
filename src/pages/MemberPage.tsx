@@ -124,7 +124,7 @@ export default function MemberPage() {
   const btnDanger = `${btn3d} bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 shadow-lg shadow-red-500/30`;
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-900 pb-20 md:pb-24">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-900 pb-28 md:pb-32">
       {/* Header */}
       <header
         className="bg-gradient-to-r from-purple-900 via-indigo-900 to-blue-900 shadow-2xl"
@@ -132,8 +132,8 @@ export default function MemberPage() {
       >
         <div className="max-w-lg mx-auto px-4 py-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-yellow-400 shadow-lg relative cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-12 h-12 flex-shrink-0 rounded-full overflow-hidden border-2 border-yellow-400 shadow-lg relative cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                 {member.profilePhoto ? (
                   <img src={member.profilePhoto} className="w-full h-full object-cover" alt="" />
                 ) : (
@@ -144,12 +144,12 @@ export default function MemberPage() {
                 <Camera className="absolute bottom-0 right-0 w-4 h-4 bg-black/50 rounded-full p-0.5 text-white" />
               </div>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-              <div>
-                <h1 className="text-white font-bold text-lg">{member.name}</h1>
-                <p className="text-purple-200 text-sm">{member.mobile}</p>
+              <div className="min-w-0">
+                <h1 className="text-white font-bold text-lg truncate">{member.name}</h1>
+                <p className="text-purple-200 text-sm truncate">{member.mobile}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <select
                 value={i18n.language}
                 onChange={(e) => i18n.changeLanguage(e.target.value)}
@@ -480,9 +480,9 @@ export default function MemberPage() {
       {/* Bottom Nav */}
       <nav
         className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-lg border-t border-white/10 z-50"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px))' }}
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 20px)' }}
       >
-        <div className="max-w-lg mx-auto flex justify-around py-2">
+        <div className="max-w-lg mx-auto flex justify-around pt-2 pb-1">
           {([
             { key: 'dashboard' as MemberTab, icon: <TrendingUp className="w-5 h-5" />, label: t('summary') },
             { key: 'loans' as MemberTab, icon: <CreditCard className="w-5 h-5" />, label: t('loans') },
