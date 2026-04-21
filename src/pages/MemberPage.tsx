@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, getMonthKey, calculateLoanDetails, calculatePenaltyDays } from '../utils/calculations';
+import { downloadCSV } from '../utils/download';
 import {
   IndianRupee, TrendingUp, Wallet, CreditCard, User, Lock, Camera,
   ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Bell,
@@ -95,13 +96,7 @@ export default function MemberPage() {
 
   const handleDownloadCSV = () => {
     const csv = store.exportMemberCSV(member.id);
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${member.name.replace(/\s+/g, '_')}_report.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCSV(csv, `${member.name.replace(/\s+/g, '_')}_report.csv`);
   };
 
   const btn3d = "relative overflow-hidden rounded-xl font-semibold text-white transition-all duration-200 active:scale-95 transform";

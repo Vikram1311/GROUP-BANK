@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, generateId, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
 import { calculateLoanDetails } from '../utils/calculations';
+import { downloadCSV } from '../utils/download';
 import {
   Users, IndianRupee, TrendingUp, Wallet, LogOut, Plus, Trash2, Edit3, Download,
   Send, Settings, Eye, CheckCircle, XCircle, Banknote,
@@ -191,13 +192,7 @@ export default function AdminPanel() {
 
   const handleExportCSV = (memberId?: string) => {
     const csv = memberId ? store.exportMemberCSV(memberId) : store.exportMonthlyCSV(selectedMonth);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = memberId ? 'member_report.csv' : `monthly_report_${selectedMonth}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCSV(csv, memberId ? 'member_report.csv' : `monthly_report_${selectedMonth}.csv`);
   };
 
   const getMonths = () => {
