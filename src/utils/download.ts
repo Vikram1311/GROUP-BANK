@@ -1,3 +1,4 @@
+// Delay URL cleanup so the browser/webview can start the download reliably.
 const REVOKE_DELAY_MS = 1000;
 
 /**
