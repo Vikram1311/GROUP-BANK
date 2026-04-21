@@ -1,0 +1,63 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    name: Build iOS Simulator App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build web app (Vite)
+        run: npm run build
+
+      - name: Add Capacitor iOS platform
+        run: npx cap add ios
+
+      - name: Generate iOS icons and splash screen
+        run: npx @capacitor/assets generate --ios
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
+
+      - name: Build iOS simulator app (unsigned)
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package iOS app artifact
+        run: |
+          cd ios/build/Build/Products/Release-iphonesimulator
+          ditto -c -k --sequesterRsrc --keepParent App.app SHG-Bank-iOS-Simulator.app.zip
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shg-bank-ios-simulator-app
+          path: ios/build/Build/Products/Release-iphonesimulator/SHG-Bank-iOS-Simulator.app.zip
+          retention-days: 30
