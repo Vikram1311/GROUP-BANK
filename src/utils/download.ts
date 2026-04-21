@@ -3,6 +3,8 @@ const REVOKE_DELAY_MS = 1000;
 
 /**
  * Downloads CSV content as a UTF-8 file with BOM for spreadsheet compatibility.
+ * @param content CSV text content
+ * @param filename output filename for the downloaded file
  */
 export function downloadCSV(content: string, filename: string) {
   const csvWithBom = `\ufeff${content}`;
@@ -17,5 +19,11 @@ export function downloadCSV(content: string, filename: string) {
   anchor.click();
   document.body.removeChild(anchor);
 
-  setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // Ignore cleanup errors.
+    }
+  }, REVOKE_DELAY_MS);
 }
