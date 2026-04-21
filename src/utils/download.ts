@@ -22,8 +22,8 @@ export function downloadCSV(content: string, filename: string) {
   setTimeout(() => {
     try {
       URL.revokeObjectURL(url);
-    } catch {
-      // Ignore cleanup errors.
+    } catch (error) {
+      console.warn('Failed to revoke CSV download URL:', error);
     }
   }, REVOKE_DELAY_MS);
 }
