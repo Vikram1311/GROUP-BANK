@@ -1165,4 +1165,13 @@ if (typeof window !== 'undefined' && !(window as Window & { __shgSyncInit?: bool
   });
 }
 
-export { hydrateFromSharedState };
+// Immediately pushes local state to remote, then pulls to apply any even-newer remote state.
+// Use this when the user explicitly requests a sync (e.g. refresh button) to guarantee the
+// latest admin changes are flushed even if the background debounce push is still pending.
+const forceSyncWithRemote = async () => {
+  if (!isCloudSyncEnabled()) return;
+  await pushSharedState(useStore.getState());
+  await hydrateFromSharedState();
+};
+
+export { hydrateFromSharedState, forceSyncWithRemote };

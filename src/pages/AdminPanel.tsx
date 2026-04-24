@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStore, hydrateFromSharedState } from '../store/useStore';
+import { useStore, forceSyncWithRemote } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, generateId, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
@@ -90,7 +90,7 @@ export default function AdminPanel() {
 
   const handleRefresh = async () => {
     setIsSyncing(true);
-    await hydrateFromSharedState();
+    await forceSyncWithRemote();
     setIsSyncing(false);
   };
 
