@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStore } from '../store/useStore';
+import { useStore, hydrateFromSharedState } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, generateId, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
@@ -8,7 +8,7 @@ import shgBankBanner from '../assets/shg-bank-banner.svg';
 import {
   Users, IndianRupee, TrendingUp, Wallet, LogOut, Plus, Trash2, Edit3, Download,
   Send, Settings, Eye, CheckCircle, XCircle,
-  AlertTriangle, CreditCard, FileText, Bell, UserPlus
+  AlertTriangle, CreditCard, FileText, Bell, UserPlus, RefreshCw
 } from 'lucide-react';
 
 type AdminTab = 'dashboard' | 'members' | 'loans' | 'contributions' | 'messages' | 'settings';
@@ -85,6 +85,13 @@ export default function AdminPanel() {
   const [showEditEMI, setShowEditEMI] = useState<{ loanId: string; emiId: string } | null>(null);
   const [settingsEdit, setSettingsEdit] = useState({ ...store.settings });
   const [memberFilter, setMemberFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsSyncing(true);
+    await hydrateFromSharedState();
+    setIsSyncing(false);
+  };
 
   const activeMembers = store.members.filter(m => m.isActive);
   const nonAdminMembers = activeMembers.filter(m => !m.isAdmin);
@@ -253,6 +260,9 @@ export default function AdminPanel() {
                 <option value="hi">हिंदी</option>
                 <option value="en">English</option>
               </select>
+              <button onClick={handleRefresh} disabled={isSyncing} className={`${btnP} px-3 py-2`} title="डेटा अपडेट करें">
+                <RefreshCw className={`w-4 h-4${isSyncing ? ' animate-spin' : ''}`} />
+              </button>
               <button onClick={() => store.logout()} className={`${btnD} px-4 py-2 text-sm`}><LogOut className="w-4 h-4" /></button>
             </div>
           </div>

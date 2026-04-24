@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useStore } from '../store/useStore';
+import { useStore, hydrateFromSharedState } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, getMonthKey, calculateLoanDetails, calculatePenaltyDays } from '../utils/calculations';
@@ -7,7 +7,7 @@ import shgBankBanner from '../assets/shg-bank-banner.svg';
 import {
   IndianRupee, TrendingUp, Wallet, CreditCard, User, Lock, Camera,
   ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Bell,
-  FileText, Eye, XCircle, Banknote, ArrowUpCircle, Download
+  FileText, Eye, XCircle, Banknote, ArrowUpCircle, Download, RefreshCw
 } from 'lucide-react';
 
 type MemberTab = 'dashboard' | 'loans' | 'history' | 'profile';
@@ -22,6 +22,13 @@ export default function MemberPage() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showLoanDetail, setShowLoanDetail] = useState<string | null>(null);
   const [showTotalAmount, setShowTotalAmount] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsSyncing(true);
+    await hydrateFromSharedState();
+    setIsSyncing(false);
+  };
 
   // Loan calc
   const [loanAmount, setLoanAmount] = useState('');
@@ -163,6 +170,9 @@ export default function MemberPage() {
                 <option value="en">English</option>
                 {member.name === 'RAVI ARUMUGAM' && <option value="ta">தமிழ்</option>}
               </select>
+              <button onClick={handleRefresh} disabled={isSyncing} className={btnPrimary + " px-3 py-1.5 text-xs"} title="डेटा अपडेट करें">
+                <RefreshCw className={`w-4 h-4${isSyncing ? ' animate-spin' : ''}`} />
+              </button>
               <button onClick={() => store.logout()} className={btnDanger + " px-3 py-1.5 text-xs"}>
                 <ArrowUpCircle className="w-4 h-4" />
               </button>

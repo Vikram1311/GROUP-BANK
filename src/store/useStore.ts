@@ -1089,4 +1089,14 @@ const hydrateFromSharedState = async () => {
 
 if (typeof window !== 'undefined') {
   void hydrateFromSharedState();
+
+  // Poll every 30 seconds so members see admin updates without reloading
+  setInterval(() => void hydrateFromSharedState(), 30_000);
+
+  // Also sync immediately when the user switches back to this tab / app
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void hydrateFromSharedState();
+  });
 }
+
+export { hydrateFromSharedState };
