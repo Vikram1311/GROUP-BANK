@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Member, Loan, Contribution, EMIRecord, AppSettings, Notification, PenaltyRecord, ManualInterestRecord } from '../types';
+import type { Member, Loan, Contribution, EMIRecord, AppSettings, Notification, PenaltyRecord, ManualInterestRecord, PaymentRequest } from '../types';
 import { generateId, getDefaultPassword, calculateLoanDetails, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
 
 const DEFAULT_MEMBERS: Omit<Member, 'id'>[] = [
@@ -66,6 +66,7 @@ interface AppState {
   penalties: PenaltyRecord[];
   manualInterests: ManualInterestRecord[];
   notifications: Notification[];
+  paymentRequests: PaymentRequest[];
   settings: AppSettings;
   language: 'hi' | 'en' | 'ta';
   
@@ -109,6 +110,7 @@ interface AppState {
   deleteContribution: (contributionId: string) => void;
   deleteEMIPayment: (loanId: string, emiId: string) => void;
   deleteLoan: (loanId: string) => void;
+  permanentDeleteMember: (memberId: string) => void;
   
   // Settings
   updateSettings: (data: Partial<AppSettings>) => void;
@@ -116,6 +118,11 @@ interface AppState {
   
   // Notifications
   addNotification: (message: string, type: 'broadcast' | 'loan_holder' | 'loan_application', targetMemberId?: string) => void;
+
+  // Payment Requests
+  addPaymentRequest: (data: { memberId: string; memberName: string; memberMobile: string; month: string; amount: number; utrNumber: string; paymentDate: string; note?: string }) => void;
+  approvePaymentRequest: (id: string) => void;
+  rejectPaymentRequest: (id: string) => void;
   
   // CSV Export
   exportMemberCSV: (memberId: string) => string;
@@ -156,6 +163,7 @@ type PersistedStateSlice = Pick<
   | 'penalties'
   | 'manualInterests'
   | 'notifications'
+  | 'paymentRequests'
   | 'settings'
   | 'language'
   | 'lastDataUpdateAt'
@@ -175,6 +183,7 @@ const pickPersistedState = (state: AppState): PersistedStateSlice => ({
   penalties: state.penalties,
   manualInterests: state.manualInterests,
   notifications: state.notifications,
+  paymentRequests: state.paymentRequests,
   settings: state.settings,
   language: state.language,
   lastDataUpdateAt: state.lastDataUpdateAt,
@@ -299,6 +308,7 @@ export const useStore = create<AppState>()(
       penalties: [],
       manualInterests: [],
       notifications: [],
+      paymentRequests: [],
       settings: DEFAULT_SETTINGS,
       language: 'hi',
 
@@ -662,6 +672,24 @@ export const useStore = create<AppState>()(
         }));
       },
 
+      permanentDeleteMember: (memberId) => {
+        const member = get().getMember(memberId);
+        if (!member || member.isAdmin) return;
+        // Remove member and ALL their associated data
+        // Interest/penalty sharing automatically re-distributes proportionally
+        // because the ratio formula is (memberContrib / totalContribs) — removing
+        // the member reduces both numerator and denominator for remaining members.
+        set(s => ({
+          members: s.members.filter(m => m.id !== memberId),
+          loans: s.loans.filter(l => l.memberId !== memberId),
+          contributions: s.contributions.filter(c => c.memberId !== memberId),
+          penalties: s.penalties.filter(p => p.memberId !== memberId),
+          manualInterests: s.manualInterests.filter(i => i.memberId !== memberId),
+          notifications: s.notifications.filter(n => !n.targetMemberId || n.targetMemberId !== memberId),
+          paymentRequests: s.paymentRequests.filter(r => r.memberId !== memberId),
+        }));
+      },
+
       updateSettings: (data) => {
         set(s => ({ settings: { ...s.settings, ...data } }));
       },
@@ -677,6 +705,42 @@ export const useStore = create<AppState>()(
           targetMemberId,
         };
         set(s => ({ notifications: [...s.notifications, notification] }));
+      },
+
+      addPaymentRequest: (data) => {
+        const req: PaymentRequest = {
+          id: generateId(),
+          memberId: data.memberId,
+          memberName: data.memberName,
+          memberMobile: data.memberMobile,
+          month: data.month,
+          amount: data.amount,
+          utrNumber: data.utrNumber,
+          paymentDate: data.paymentDate,
+          note: data.note,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+        };
+        set(s => ({ paymentRequests: [...s.paymentRequests, req] }));
+      },
+
+      approvePaymentRequest: (id) => {
+        const req = get().paymentRequests.find(r => r.id === id);
+        if (!req || req.status !== 'pending') return;
+        get().addContribution(req.memberId, req.month, req.paymentDate, false);
+        set(s => ({
+          paymentRequests: s.paymentRequests.map(r =>
+            r.id === id ? { ...r, status: 'approved' as const } : r
+          ),
+        }));
+      },
+
+      rejectPaymentRequest: (id) => {
+        set(s => ({
+          paymentRequests: s.paymentRequests.map(r =>
+            r.id === id ? { ...r, status: 'rejected' as const } : r
+          ),
+        }));
       },
 
       exportMemberCSV: (memberId) => {
@@ -1087,6 +1151,18 @@ const hydrateFromSharedState = async () => {
   });
 };
 
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && !(window as Window & { __shgSyncInit?: boolean }).__shgSyncInit) {
+  (window as Window & { __shgSyncInit?: boolean }).__shgSyncInit = true;
+
   void hydrateFromSharedState();
+
+  // Poll every 30 seconds so members see admin updates without reloading
+  setInterval(() => void hydrateFromSharedState(), 30_000);
+
+  // Also sync immediately when the user switches back to this tab / app
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void hydrateFromSharedState();
+  });
 }
+
+export { hydrateFromSharedState };

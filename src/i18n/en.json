@@ -155,5 +155,19 @@
   "inactiveMemberBanner": "Your account is inactive — you cannot add new monthly contributions",
   "inactiveFundEarning": "Your deposited fund is still earning interest ✅",
   "whatsappLinkedHint": "After saving, WhatsApp will open. From there, send the message to the selected members.",
-  "loanApplication": "Loan Application"
+  "loanApplication": "Loan Application",
+  "memberDetails": "Member Details",
+  "payNowUpi": "Pay via UPI App",
+  "submitPaymentProof": "Submit Payment Details",
+  "paymentProofHint": "After paying via UPI, enter the UTR number below. UPI ID:",
+  "utrNumber": "UTR / Transaction Number",
+  "utrPlaceholder": "Enter UTR or Transaction ID",
+  "paymentDate": "Payment Date",
+  "noteOptional": "Note (optional)",
+  "submitPayment": "Submit",
+  "paymentRequestSent": "Your payment details have been sent to admin. Contribution will appear after verification.",
+  "pendingPaymentRequests": "Payment Verification Requests",
+  "permanentDelete": "Permanent Delete",
+  "permanentDeleteConfirm1": "Are you sure you want to permanently delete member",
+  "permanentDeleteConfirm2": "This cannot be undone. All their data (contributions, loans, penalties) will be removed and remaining members' earnings will automatically be recalculated proportionally."
 }

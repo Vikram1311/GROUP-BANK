@@ -155,5 +155,19 @@
   "inactiveMemberBanner": "आपका खाता निष्क्रिय है — आप नई मासिक योगदान नहीं दे सकते",
   "inactiveFundEarning": "आपका जमा फंड अभी भी ब्याज कमा रहा है ✅",
   "whatsappLinkedHint": "सेव करने के बाद WhatsApp खुलेगा। वहाँ से चयनित सदस्यों को संदेश भेज दें।",
-  "loanApplication": "ऋण आवेदन"
+  "loanApplication": "ऋण आवेदन",
+  "memberDetails": "सदस्य विवरण",
+  "payNowUpi": "UPI से Pay करें",
+  "submitPaymentProof": "भुगतान विवरण जमा करें",
+  "paymentProofHint": "UPI से भुगतान करने के बाद नीचे UTR नंबर दर्ज करें। UPI ID:",
+  "utrNumber": "UTR / Transaction नंबर",
+  "utrPlaceholder": "UTR या Transaction ID दर्ज करें",
+  "paymentDate": "भुगतान तिथि",
+  "noteOptional": "नोट (वैकल्पिक)",
+  "submitPayment": "जमा करें",
+  "paymentRequestSent": "आपका भुगतान विवरण एडमिन को भेज दिया गया। सत्यापन के बाद योगदान दिखेगा।",
+  "pendingPaymentRequests": "भुगतान सत्यापन अनुरोध",
+  "permanentDelete": "स्थायी हटाएं",
+  "permanentDeleteConfirm1": "क्या आप सच में इस सदस्य को स्थायी रूप से हटाना चाहते हैं",
+  "permanentDeleteConfirm2": "यह कार्यवाही वापस नहीं होगी। सदस्य का पूरा डेटा (योगदान, ऋण, जुर्माना) हट जाएगा और बाकी सदस्यों की कमाई अपने आप सही हिसाब से बंटेगी।"
 }

@@ -1,18 +1,18 @@
 import { useState } from 'react';
-import { useStore } from '../store/useStore';
+import { useStore, hydrateFromSharedState } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, generateId, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
 import { calculateLoanDetails } from '../utils/calculations';
+import { downloadCSV } from '../utils/download';
 import shgBankBanner from '../assets/shg-bank-banner.svg';
 import {
   Users, IndianRupee, TrendingUp, Wallet, LogOut, Plus, Trash2, Edit3, Download,
   Send, Settings, Eye, CheckCircle, XCircle,
-  AlertTriangle, CreditCard, FileText, Bell, UserPlus
+  AlertTriangle, CreditCard, FileText, Bell, UserPlus, RefreshCw
 } from 'lucide-react';
 
 type AdminTab = 'dashboard' | 'members' | 'loans' | 'contributions' | 'messages' | 'settings';
-const URL_REVOKE_DELAY_MS = 5000;
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
   return (
@@ -85,6 +85,14 @@ export default function AdminPanel() {
   const [showEditEMI, setShowEditEMI] = useState<{ loanId: string; emiId: string } | null>(null);
   const [settingsEdit, setSettingsEdit] = useState({ ...store.settings });
   const [memberFilter, setMemberFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [showMemberDetail, setShowMemberDetail] = useState<string | null>(null);
+
+  const handleRefresh = async () => {
+    setIsSyncing(true);
+    await hydrateFromSharedState();
+    setIsSyncing(false);
+  };
 
   const activeMembers = store.members.filter(m => m.isActive);
   const nonAdminMembers = activeMembers.filter(m => !m.isAdmin);
@@ -95,6 +103,7 @@ export default function AdminPanel() {
   const totalPenalty = store.getTotalPenaltyCollected();
   const totalInterest = store.getTotalInterestCollected();
   const pendingLoans = store.getPendingLoans();
+  const pendingPaymentRequests = (store.paymentRequests ?? []).filter(r => r.status === 'pending');
   const defaulters = store.getDefaulterNames();
   const adminMember = store.members.find(m => m.isAdmin && m.isActive);
   const adminPenaltyShare = adminMember ? store.getMemberPenaltyShare(adminMember.id) : 0;
@@ -194,8 +203,7 @@ export default function AdminPanel() {
   const handleExportCSV = async (memberId?: string) => {
     const csv = memberId ? store.exportMemberCSV(memberId) : store.exportMonthlyCSV(selectedMonth);
     const fileName = memberId ? 'member_report.csv' : `monthly_report_${selectedMonth}.csv`;
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const file = new File([blob], fileName, { type: 'text/csv;charset=utf-8;' });
+    const file = new File(['\ufeff' + csv], fileName, { type: 'text/csv;charset=utf-8;' });
     const canShareFiles = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
     if (navigator.share && canShareFiles) {
       try {
@@ -205,14 +213,7 @@ export default function AdminPanel() {
         // Fallback to direct download below when share is cancelled/unsupported.
       }
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), URL_REVOKE_DELAY_MS);
+    downloadCSV(csv, fileName);
   };
 
   const getMonths = () => {
@@ -253,6 +254,9 @@ export default function AdminPanel() {
                 <option value="hi">हिंदी</option>
                 <option value="en">English</option>
               </select>
+              <button onClick={handleRefresh} disabled={isSyncing} className={`${btnP} px-3 py-2`} title="डेटा अपडेट करें">
+                <RefreshCw className={`w-4 h-4${isSyncing ? ' animate-spin' : ''}`} />
+              </button>
               <button onClick={() => store.logout()} className={`${btnD} px-4 py-2 text-sm`}><LogOut className="w-4 h-4" /></button>
             </div>
           </div>
@@ -325,6 +329,36 @@ export default function AdminPanel() {
                     <div className="flex gap-2">
                       <button onClick={() => store.approveLoan(loan.id)} className="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-emerald-600"><CheckCircle className="w-4 h-4" /></button>
                       <button onClick={() => store.rejectLoan(loan.id)} className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-red-600"><XCircle className="w-4 h-4" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingPaymentRequests.length > 0 && (
+              <div className="bg-emerald-500/10 backdrop-blur rounded-2xl p-4 mb-6 border border-emerald-500/30">
+                <h3 className="text-emerald-300 font-bold text-lg mb-3 flex items-center gap-2">
+                  <IndianRupee className="w-5 h-5" /> {t('pendingPaymentRequests')} ({pendingPaymentRequests.length})
+                </h3>
+                {pendingPaymentRequests.map(req => (
+                  <div key={req.id} className="bg-white/5 rounded-xl p-3 mb-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white font-semibold">{req.memberName}</p>
+                        <p className="text-gray-400 text-xs">{req.memberMobile}</p>
+                        <p className="text-emerald-300 text-sm mt-1">{req.month} • {formatCurrency(req.amount)}</p>
+                        <p className="text-gray-300 text-xs mt-0.5">{t('utrNumber')}: <span className="text-yellow-300 font-mono">{req.utrNumber}</span></p>
+                        <p className="text-gray-400 text-xs">{t('paymentDate')}: {req.paymentDate}</p>
+                        {req.note && <p className="text-gray-400 text-xs mt-0.5">{req.note}</p>}
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <button onClick={() => store.approvePaymentRequest(req.id)} className="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-emerald-600 flex items-center gap-1">
+                          <CheckCircle className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => store.rejectPaymentRequest(req.id)} className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-red-600 flex items-center gap-1">
+                          <XCircle className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -420,15 +454,15 @@ export default function AdminPanel() {
               .map(member => (
               <div key={member.id} className={`bg-white/5 backdrop-blur rounded-2xl p-4 border hover:border-white/20 transition ${member.isActive ? 'border-white/10' : 'border-red-500/30 opacity-80'}`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 cursor-pointer flex-1 min-w-0 pr-2" onClick={() => setShowMemberDetail(member.id)}>
                     {member.profilePhoto ? (
-                      <img src={member.profilePhoto} className="w-12 h-12 rounded-full object-cover" alt="" />
+                      <img src={member.profilePhoto} className="w-12 h-12 rounded-full object-cover flex-shrink-0" alt="" />
                     ) : (
-                      <div className={`w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg ${!member.isActive ? 'grayscale' : ''}`}>{member.name.charAt(0)}</div>
+                      <div className={`w-12 h-12 flex-shrink-0 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg ${!member.isActive ? 'grayscale' : ''}`}>{member.name.charAt(0)}</div>
                     )}
-                    <div>
-                      <p className={`font-semibold ${member.isActive ? 'text-white' : 'text-gray-400 line-through'}`}>{member.name}</p>
-                      <p className="text-gray-400 text-sm">{member.mobile} • {formatDate(member.joiningDate)}</p>
+                    <div className="min-w-0">
+                      <p className={`font-semibold truncate ${member.isActive ? 'text-white' : 'text-gray-400 line-through'}`}>{member.name}</p>
+                      <p className="text-gray-400 text-sm truncate">{member.mobile} • {formatDate(member.joiningDate)}</p>
                       {!member.isActive && (
                         <span className="text-red-400 text-xs font-semibold">⛔ {t('inactive')}{member.inactiveDate ? ` — ${formatDate(member.inactiveDate)}` : ''}</span>
                       )}
@@ -453,6 +487,18 @@ export default function AdminPanel() {
                     <button onClick={() => setShowEditMember(member.id)} className="bg-blue-500/20 text-blue-400 p-2 rounded-lg hover:bg-blue-500/30"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => { if (confirm(`${member.name} हटाएं?`)) store.removeMember(member.id); }} className="bg-red-500/20 text-red-400 p-2 rounded-lg hover:bg-red-500/30"><Trash2 className="w-4 h-4" /></button>
                     <button onClick={() => store.resetMemberPassword(member.id)} className="bg-amber-500/20 text-amber-400 p-2 rounded-lg hover:bg-amber-500/30 text-xs whitespace-nowrap">🔑 Reset</button>
+                    {!member.isActive && (
+                      <button
+                        onClick={() => {
+                          if (confirm(`⚠️ ${t('permanentDeleteConfirm1')} "${member.name}"?\n\n${t('permanentDeleteConfirm2')}`)) {
+                            store.permanentDeleteMember(member.id);
+                          }
+                        }}
+                        className="bg-red-700/30 text-red-300 px-3 py-1.5 rounded-lg text-xs hover:bg-red-700/50 font-semibold border border-red-700/40"
+                      >
+                        🗑️ {t('permanentDelete')}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -835,6 +881,14 @@ export default function AdminPanel() {
       {showEMIDetail && <EMIDetailModal loanId={showEMIDetail} onClose={() => setShowEMIDetail(null)} onEditEMI={(loanId, emiId) => setShowEditEMI({ loanId, emiId })} />}
       {showEditContribution && <EditContributionModal contributionId={showEditContribution} onClose={() => setShowEditContribution(null)} />}
       {showEditEMI && <EditEMIModal loanId={showEditEMI.loanId} emiId={showEditEMI.emiId} onClose={() => setShowEditEMI(null)} />}
+      {showMemberDetail && (
+        <MemberDetailModal
+          memberId={showMemberDetail}
+          onClose={() => setShowMemberDetail(null)}
+          onEditMember={(id) => { setShowMemberDetail(null); setShowEditMember(id); }}
+          onExportCSV={handleExportCSV}
+        />
+      )}
     </div>
   );
 }
@@ -1004,5 +1058,208 @@ function EditEMIModal({ loanId, emiId, onClose }: { loanId: string; emiId: strin
         </div>
       </div>
     </Modal>
+  );
+}
+
+function MemberDetailModal({
+  memberId,
+  onClose,
+  onEditMember,
+  onExportCSV,
+}: {
+  memberId: string;
+  onClose: () => void;
+  onEditMember: (id: string) => void;
+  onExportCSV: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  const store = useStore();
+  const member = store.getMember(memberId);
+  const [activeDetailTab, setActiveDetailTab] = useState<'summary' | 'contributions' | 'loans'>('summary');
+  const [showEditContrib, setShowEditContrib] = useState<string | null>(null);
+  const [showEMIDetail, setShowEMIDetail] = useState<string | null>(null);
+  const [showEditEMI, setShowEditEMI] = useState<{ loanId: string; emiId: string } | null>(null);
+
+  if (!member) return null;
+
+  const totalContrib = store.getMemberTotalContribution(memberId);
+  const penaltyShare = store.getMemberPenaltyShare(memberId);
+  const interestShare = store.getMemberInterestShare(memberId);
+  const grandTotal = store.getMemberGrandTotal(memberId);
+  const loans = store.getMemberLoans(memberId).filter(l => l.status !== 'recalled' && l.status !== 'rejected');
+  const contributions = store.getMemberContributions(memberId).slice().sort((a, b) => b.month.localeCompare(a.month));
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-0 md:p-4"
+        onClick={onClose}
+      >
+        <div
+          className="bg-slate-800 rounded-t-3xl md:rounded-3xl w-full md:max-w-2xl max-h-[92vh] flex flex-col border border-white/10 shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Sticky header */}
+          <div className="px-5 pt-5 pb-3 border-b border-white/10 flex-shrink-0">
+            {/* Member info row */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {member.profilePhoto ? (
+                  <img src={member.profilePhoto} className="w-12 h-12 rounded-full object-cover flex-shrink-0 border-2 border-blue-400" alt="" />
+                ) : (
+                  <div className={`w-12 h-12 flex-shrink-0 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-xl ${!member.isActive ? 'grayscale' : ''}`}>
+                    {member.name.charAt(0)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <h3 className="text-white font-bold text-lg truncate">{member.name}</h3>
+                  <p className="text-gray-400 text-xs">{member.mobile} • {formatDate(member.joiningDate)}</p>
+                  {!member.isActive && (
+                    <span className="text-red-400 text-xs font-semibold">⛔ {t('inactive')}{member.inactiveDate ? ` — ${formatDate(member.inactiveDate)}` : ''}</span>
+                  )}
+                </div>
+              </div>
+              <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0 ml-2">✕</button>
+            </div>
+            {/* Quick actions */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              <button
+                onClick={() => { onClose(); onEditMember(memberId); }}
+                className="bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg text-xs hover:bg-blue-500/30 font-semibold flex items-center gap-1"
+              >
+                <Edit3 className="w-3 h-3" /> {t('edit')}
+              </button>
+              <button
+                onClick={() => onExportCSV(memberId)}
+                className="bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg text-xs hover:bg-emerald-500/30 font-semibold flex items-center gap-1"
+              >
+                <Download className="w-3 h-3" /> CSV
+              </button>
+              <button
+                onClick={() => store.resetMemberPassword(memberId)}
+                className="bg-amber-500/20 text-amber-400 px-3 py-1.5 rounded-lg text-xs hover:bg-amber-500/30 font-semibold"
+              >
+                🔑 Reset
+              </button>
+            </div>
+            {/* Tabs */}
+            <div className="flex gap-1.5">
+              {(['summary', 'contributions', 'loans'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveDetailTab(tab)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${activeDetailTab === tab ? 'bg-blue-500 text-white shadow-lg' : 'bg-white/5 text-gray-400 hover:text-white'}`}
+                >
+                  {tab === 'summary' ? `📊 ${t('summary')}` : tab === 'contributions' ? `💰 ${t('contributions')}` : `🏦 ${t('loans')}`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Scrollable content */}
+          <div className="overflow-y-auto flex-1 p-5 space-y-3">
+            {/* Summary Tab */}
+            {activeDetailTab === 'summary' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                    <p className="text-gray-400 text-xs">{t('totalContribution')}</p>
+                    <p className="text-emerald-400 font-bold text-xl mt-1">{formatCurrency(totalContrib)}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                    <p className="text-gray-400 text-xs">{t('penaltyEarnings')}</p>
+                    <p className="text-red-400 font-bold text-xl mt-1">{formatCurrency(penaltyShare)}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                    <p className="text-gray-400 text-xs">{t('interestEarnings')}</p>
+                    <p className="text-blue-400 font-bold text-xl mt-1">{formatCurrency(interestShare)}</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 rounded-2xl p-4 border border-amber-500/30">
+                    <p className="text-gray-400 text-xs">{t('grandTotal')}</p>
+                    <p className="text-amber-400 font-bold text-xl mt-1">{formatCurrency(grandTotal)}</p>
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-2xl p-4 border border-white/10 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-400 text-xs mb-0.5">{t('loans')}</p>
+                    <p className="text-white font-semibold">{loans.filter(l => l.status === 'active').length} {t('active')} / {loans.length} {t('total')}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400 text-xs mb-0.5">{t('contributions')}</p>
+                    <p className="text-white font-semibold">{contributions.filter(c => c.status === 'paid').length} {t('paid')} / {contributions.length}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Contributions Tab */}
+            {activeDetailTab === 'contributions' && (
+              <div className="space-y-2">
+                {contributions.length === 0 ? (
+                  <p className="text-gray-400 text-center py-10">{t('noData')}</p>
+                ) : contributions.map(c => (
+                  <div key={c.id} className="bg-white/5 rounded-xl p-3 border border-white/10">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-white font-medium">{c.month}</p>
+                        <p className="text-gray-400 text-xs">
+                          {c.paidDate ? formatDate(c.paidDate) : '—'}
+                          {c.penalty > 0 && <span className="text-red-400 ml-1">+ {formatCurrency(c.penalty)} {t('penalty')}</span>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-1 rounded-full text-xs ${c.status === 'paid' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                          {t(c.status)} {formatCurrency(c.amount)}
+                        </span>
+                        <button onClick={() => setShowEditContrib(c.id)} className="bg-blue-500/20 text-blue-400 p-1.5 rounded-lg hover:bg-blue-500/30"><Edit3 className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => { if (confirm(`${c.month} योगदान हटाएं? / Delete ${c.month} contribution?`)) store.deleteContribution(c.id); }} className="bg-red-500/20 text-red-400 p-1.5 rounded-lg hover:bg-red-500/30"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Loans Tab */}
+            {activeDetailTab === 'loans' && (
+              <div className="space-y-3">
+                {loans.length === 0 ? (
+                  <p className="text-gray-400 text-center py-10">{t('noData')}</p>
+                ) : loans.map(loan => (
+                  <div key={loan.id} className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${loan.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : loan.status === 'completed' ? 'bg-blue-500/20 text-blue-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                        {t(loan.status)}
+                      </span>
+                      <p className="text-gray-400 text-xs">{formatDate(loan.openingDate)}</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-white/5 rounded-lg p-2"><p className="text-gray-400 text-xs">{t('loanAmount')}</p><p className="text-white font-bold text-sm">{formatCurrency(loan.amount)}</p></div>
+                      <div className="bg-white/5 rounded-lg p-2"><p className="text-gray-400 text-xs">{t('totalInterest')}</p><p className="text-yellow-400 font-bold text-sm">{formatCurrency(loan.totalInterest)}</p></div>
+                      <div className="bg-white/5 rounded-lg p-2"><p className="text-gray-400 text-xs">{t('remaining')}</p><p className="text-red-400 font-bold text-sm">{formatCurrency(loan.remainingAmount)}</p></div>
+                    </div>
+                    <div className="flex justify-between items-center mt-3">
+                      <p className="text-gray-400 text-xs">{loan.emiHistory.filter(e => e.status === 'paid').length}/{loan.months} EMI {t('paid')}</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => setShowEMIDetail(loan.id)} className="bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg text-xs hover:bg-blue-500/30 flex items-center gap-1">
+                          <Eye className="w-3 h-3" /> EMI
+                        </button>
+                        <button onClick={() => { if (confirm(`${loan.memberName} का ये ऋण हटाएं? / Delete ${loan.memberName}'s loan?`)) store.deleteLoan(loan.id); }} className="bg-red-500/20 text-red-400 px-3 py-1.5 rounded-lg text-xs hover:bg-red-500/30 flex items-center gap-1">
+                          <Trash2 className="w-3 h-3" /> {t('delete')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showEditContrib && <EditContributionModal contributionId={showEditContrib} onClose={() => setShowEditContrib(null)} />}
+      {showEMIDetail && <EMIDetailModal loanId={showEMIDetail} onClose={() => setShowEMIDetail(null)} onEditEMI={(loanId, emiId) => setShowEditEMI({ loanId, emiId })} />}
+      {showEditEMI && <EditEMIModal loanId={showEditEMI.loanId} emiId={showEditEMI.emiId} onClose={() => setShowEditEMI(null)} />}
+    </>
   );
 }

@@ -104,3 +104,17 @@ export interface MemberShare {
   totalContribution: number;
   grandTotal: number;
 }
+
+export interface PaymentRequest {
+  id: string;
+  memberId: string;
+  memberName: string;
+  memberMobile: string;
+  month: string;
+  amount: number;
+  utrNumber: string;
+  paymentDate: string;
+  note?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+}
