@@ -114,7 +114,6 @@ export interface Transaction {
   date: string;
   description?: string;
   status?: string;
-  [key: string]: unknown;
 }
 
 export interface PaymentRequest {
