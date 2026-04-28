@@ -299,7 +299,8 @@ const fetchSharedState = async (): Promise<SharedStateEnvelope | null> => {
 
   // Return the envelope with the latest updatedAt timestamp
   return envelopes.reduce((best, cur) =>
-    (!best.updatedAt || (cur.updatedAt && cur.updatedAt > best.updatedAt)) ? cur : best
+    (best.updatedAt && (!cur.updatedAt || best.updatedAt >= cur.updatedAt)) ? best : cur,
+    envelopes[0]
   );
 };
 
@@ -312,29 +313,31 @@ const pushSharedState = async (state: AppState): Promise<void> => {
   };
   const bodyJson = JSON.stringify(body);
 
-  const pushToJsonbin = async () => {
-    if (!USE_JSONBIN) return;
-    const response = await fetch(JSONBIN_WRITE_URL, {
-      method: 'PUT',
-      headers: getJsonbinHeaders(),
-      body: bodyJson,
-      keepalive: true,
-    });
-    if (!response.ok) throw new Error(`JSONBin write HTTP ${response.status}`);
-  };
+  const pushPromises: Promise<void>[] = [];
+  if (USE_JSONBIN) {
+    pushPromises.push((async () => {
+      const response = await fetch(JSONBIN_WRITE_URL, {
+        method: 'PUT',
+        headers: getJsonbinHeaders(),
+        body: bodyJson,
+        keepalive: true,
+      });
+      if (!response.ok) throw new Error(`JSONBin write HTTP ${response.status}`);
+    })());
+  }
+  if (SHARED_STATE_URL) {
+    pushPromises.push((async () => {
+      const response = await fetch(SHARED_STATE_URL, {
+        method: resolvedSyncMethod,
+        headers: getApiHeaders(),
+        body: bodyJson,
+        keepalive: true,
+      });
+      if (!response.ok) throw new Error(`API write HTTP ${response.status}`);
+    })());
+  }
 
-  const pushToApi = async () => {
-    if (!SHARED_STATE_URL) return;
-    const response = await fetch(SHARED_STATE_URL, {
-      method: resolvedSyncMethod,
-      headers: getApiHeaders(),
-      body: bodyJson,
-      keepalive: true,
-    });
-    if (!response.ok) throw new Error(`API write HTTP ${response.status}`);
-  };
-
-  const results = await Promise.allSettled([pushToJsonbin(), pushToApi()]);
+  const results = await Promise.allSettled(pushPromises);
   const errors: string[] = [];
   for (const result of results) {
     if (result.status === 'rejected') {
