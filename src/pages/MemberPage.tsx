@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useStore, hydrateFromSharedState } from '../store/useStore';
+import { useStore, hydrateFromSharedState, getSyncStatus, subscribeSyncStatus } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, getMonthKey, calculateLoanDetails, calculatePenaltyDays } from '../utils/calculations';
@@ -24,16 +24,22 @@ export default function MemberPage() {
   const [showTotalAmount, setShowTotalAmount] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(getSyncStatus());
 
   const handleRefresh = async () => {
     setIsSyncing(true);
     await hydrateFromSharedState();
+    setSyncStatus(getSyncStatus());
     setIsSyncing(false);
   };
 
   // ऐप खुलने पर (component mount) हर बार ताज़ा डेटा pull करें
   useEffect(() => {
     hydrateFromSharedState().catch(() => {/* sync failure is non-fatal; background polling will retry */});
+  }, []);
+
+  useEffect(() => {
+    return subscribeSyncStatus(() => setSyncStatus(getSyncStatus()));
   }, []);
 
   // Loan calc
@@ -153,6 +159,13 @@ export default function MemberPage() {
   const btnSuccess = `${btn3d} bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 shadow-lg shadow-emerald-500/30`;
   const btnDanger = `${btn3d} bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 shadow-lg shadow-red-500/30`;
 
+  const syncTitle = syncStatus.lastSyncError
+    ? `Sync Error: ${syncStatus.lastSyncError}`
+    : syncStatus.lastSyncAt
+    ? `Last synced: ${new Date(syncStatus.lastSyncAt).toLocaleTimeString()}`
+    : 'Sync pending…';
+  const syncDotColor = isSyncing ? 'bg-yellow-400' : syncStatus.lastSyncError ? 'bg-red-500' : syncStatus.lastSyncAt ? 'bg-green-400' : 'bg-gray-500';
+
   return (
     <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-purple-900/50 to-slate-900 pb-28 md:pb-32">
       {/* Header */}
@@ -192,8 +205,15 @@ export default function MemberPage() {
                 <option value="en">English</option>
                 {member.name === 'RAVI ARUMUGAM' && <option value="ta">தமிழ்</option>}
               </select>
-              <button onClick={handleRefresh} disabled={isSyncing} className={btnPrimary + " px-3 py-1.5 text-xs"} title="डेटा अपडेट करें">
+              <button
+                onClick={handleRefresh}
+                disabled={isSyncing}
+                className={btnPrimary + " px-3 py-1.5 text-xs flex items-center gap-1.5 relative"}
+                title={syncTitle}
+              >
                 <RefreshCw className={`w-4 h-4${isSyncing ? ' animate-spin' : ''}`} />
+                <span>{t('dataSync')}</span>
+                <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border border-slate-900 ${syncDotColor}`} />
               </button>
               <button onClick={() => store.logout()} className={btnDanger + " px-3 py-1.5 text-xs"}>
                 <ArrowUpCircle className="w-4 h-4" />

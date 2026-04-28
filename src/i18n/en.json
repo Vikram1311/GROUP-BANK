@@ -169,5 +169,6 @@
   "pendingPaymentRequests": "Payment Verification Requests",
   "permanentDelete": "Permanent Delete",
   "permanentDeleteConfirm1": "Are you sure you want to permanently delete member",
-  "permanentDeleteConfirm2": "This cannot be undone. All their data (contributions, loans, penalties) will be removed and remaining members' earnings will automatically be recalculated proportionally."
+  "permanentDeleteConfirm2": "This cannot be undone. All their data (contributions, loans, penalties) will be removed and remaining members' earnings will automatically be recalculated proportionally.",
+  "dataSync": "Data Sync"
 }
