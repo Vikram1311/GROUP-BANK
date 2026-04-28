@@ -51,7 +51,9 @@ const SYNC_DEBOUNCE_MS = 600;
 const NETWORK_READY_RETRY_DELAY_MS = 3_000;
 
 // JSONBin.io dedicated sync support
-const JSONBIN_BIN_ID = import.meta.env.VITE_JSONBIN_BIN_ID?.trim() || '';
+// Bin ID is non-secret (public identifier). Hardcoded as fallback so sync works even
+// if VITE_JSONBIN_BIN_ID is not set in the deployment environment (e.g. Vercel).
+const JSONBIN_BIN_ID = import.meta.env.VITE_JSONBIN_BIN_ID?.trim() || '69ef2309856a6821897909da';
 const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY?.trim() || '';
 const JSONBIN_READ_URL = JSONBIN_BIN_ID ? `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest` : '';
 const JSONBIN_WRITE_URL = JSONBIN_BIN_ID ? `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}` : '';
