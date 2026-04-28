@@ -43,6 +43,17 @@ const DEFAULT_SETTINGS: AppSettings = {
 const REMOVED_MEMBER_MOBILES = new Set(['9654662362', '9990173980']);
 
 const SYNC_STATE_VERSION = 1;
+
+// Sync status — updated by push/pull operations, readable via getSyncStatus()
+let _lastSyncAt: string | null = null;
+let _lastSyncError: string | null = null;
+let _syncStatusListeners: Array<() => void> = [];
+const _notifySyncListeners = () => _syncStatusListeners.forEach(fn => fn());
+export const getSyncStatus = () => ({ lastSyncAt: _lastSyncAt, lastSyncError: _lastSyncError });
+export const subscribeSyncStatus = (fn: () => void): (() => void) => {
+  _syncStatusListeners.push(fn);
+  return () => { _syncStatusListeners = _syncStatusListeners.filter(f => f !== fn); };
+};
 const SHARED_STATE_URL = import.meta.env.VITE_SHARED_STATE_URL?.trim() || '';
 const SHARED_STATE_TOKEN = import.meta.env.VITE_SHARED_STATE_TOKEN?.trim() || '';
 const SHARED_STATE_METHOD = (import.meta.env.VITE_SHARED_STATE_METHOD?.trim() || 'PUT').toUpperCase();
@@ -235,7 +246,11 @@ const fetchSharedState = async (): Promise<SharedStateEnvelope | null> => {
       headers: getSyncHeaders(),
       cache: 'no-store',
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      _lastSyncError = `Read failed: HTTP ${response.status}`;
+      _notifySyncListeners();
+      return null;
+    }
     const payload = await response.json();
     // JSONBin wraps the data inside a "record" key: { record: {...}, metadata: {...} }
     const data =
@@ -243,7 +258,9 @@ const fetchSharedState = async (): Promise<SharedStateEnvelope | null> => {
         ? (payload as { record: unknown }).record
         : payload;
     return parseSharedEnvelope(data);
-  } catch {
+  } catch (err) {
+    _lastSyncError = `Read error: ${err instanceof Error ? err.message : String(err)}`;
+    _notifySyncListeners();
     return null;
   }
 };
@@ -258,14 +275,23 @@ const pushSharedState = async (state: AppState): Promise<void> => {
   try {
     const url = USE_JSONBIN ? JSONBIN_WRITE_URL : SHARED_STATE_URL;
     const method = USE_JSONBIN ? 'PUT' : resolvedSyncMethod;
-    await fetch(url, {
+    const response = await fetch(url, {
       method,
       headers: getSyncHeaders(),
       body: JSON.stringify(body),
       keepalive: true,
     });
-  } catch {
-    // No-op: local persistence remains primary fallback.
+    if (!response.ok) {
+      _lastSyncError = `Write failed: HTTP ${response.status}`;
+      _notifySyncListeners();
+    } else {
+      _lastSyncError = null;
+      _lastSyncAt = new Date().toISOString();
+      _notifySyncListeners();
+    }
+  } catch (err) {
+    _lastSyncError = `Write error: ${err instanceof Error ? err.message : String(err)}`;
+    _notifySyncListeners();
   }
 };
 
@@ -1164,6 +1190,11 @@ const hydrateFromSharedState = async () => {
   if (remoteTimestamp <= localTimestamp) {
     if (remoteTimestamp === 0 && localTimestamp > 0) {
       await pushSharedState(local);
+    } else {
+      // Remote is in sync or older — mark as successfully synced
+      _lastSyncError = null;
+      _lastSyncAt = new Date().toISOString();
+      _notifySyncListeners();
     }
     return;
   }
@@ -1174,6 +1205,9 @@ const hydrateFromSharedState = async () => {
     language: local.language,
     lastDataUpdateAt: remote.state.lastDataUpdateAt ?? remote.updatedAt,
   });
+  _lastSyncError = null;
+  _lastSyncAt = new Date().toISOString();
+  _notifySyncListeners();
 };
 
 if (typeof window !== 'undefined' && !(window as Window & { __shgSyncInit?: boolean }).__shgSyncInit) {

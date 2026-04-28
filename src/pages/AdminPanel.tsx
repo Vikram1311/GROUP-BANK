@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useStore, forceSyncWithRemote } from '../store/useStore';
+import { useState, useEffect } from 'react';
+import { useStore, forceSyncWithRemote, getSyncStatus, subscribeSyncStatus } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { formatCurrency, formatDate, generateId, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
@@ -87,10 +87,16 @@ export default function AdminPanel() {
   const [memberFilter, setMemberFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [isSyncing, setIsSyncing] = useState(false);
   const [showMemberDetail, setShowMemberDetail] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState(getSyncStatus);
+
+  useEffect(() => {
+    return subscribeSyncStatus(() => setSyncStatus(getSyncStatus()));
+  }, []);
 
   const handleRefresh = async () => {
     setIsSyncing(true);
     await forceSyncWithRemote();
+    setSyncStatus(getSyncStatus());
     setIsSyncing(false);
   };
 
@@ -254,8 +260,14 @@ export default function AdminPanel() {
                 <option value="hi">हिंदी</option>
                 <option value="en">English</option>
               </select>
-              <button onClick={handleRefresh} disabled={isSyncing} className={`${btnP} px-3 py-2`} title="डेटा अपडेट करें">
+              <button
+                onClick={handleRefresh}
+                disabled={isSyncing}
+                className={`${btnP} px-3 py-2 relative`}
+                title={syncStatus.lastSyncError ? `Sync Error: ${syncStatus.lastSyncError}` : syncStatus.lastSyncAt ? `Last synced: ${new Date(syncStatus.lastSyncAt).toLocaleTimeString()}` : 'Sync pending…'}
+              >
                 <RefreshCw className={`w-4 h-4${isSyncing ? ' animate-spin' : ''}`} />
+                <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border border-slate-900 ${isSyncing ? 'bg-yellow-400' : syncStatus.lastSyncError ? 'bg-red-500' : syncStatus.lastSyncAt ? 'bg-green-400' : 'bg-gray-500'}`} />
               </button>
               <button onClick={() => store.logout()} className={`${btnD} px-4 py-2 text-sm`}><LogOut className="w-4 h-4" /></button>
             </div>
@@ -264,6 +276,16 @@ export default function AdminPanel() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-5 pb-24 md:pb-28">
+        {syncStatus.lastSyncError && (
+          <div className="mb-4 flex items-start gap-3 bg-red-500/15 border border-red-500/40 rounded-xl px-4 py-3 text-sm text-red-300">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+            <div>
+              <p className="font-semibold text-red-300">Cloud Sync Error</p>
+              <p className="text-red-400 text-xs mt-0.5">{syncStatus.lastSyncError}</p>
+              <p className="text-red-400/70 text-xs mt-1">Vercel में <code className="bg-red-900/40 px-1 rounded">VITE_JSONBIN_API_KEY</code> और <code className="bg-red-900/40 px-1 rounded">VITE_JSONBIN_BIN_ID</code> check करें, फिर redeploy करें।</p>
+            </div>
+          </div>
+        )}
         {/* Dashboard */}
         {activeTab === 'dashboard' && (
           <>
