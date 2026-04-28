@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useStore, hydrateFromSharedState } from '../store/useStore';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
@@ -30,6 +30,11 @@ export default function MemberPage() {
     await hydrateFromSharedState();
     setIsSyncing(false);
   };
+
+  // ऐप खुलने पर (component mount) हर बार ताज़ा डेटा pull करें
+  useEffect(() => {
+    hydrateFromSharedState().catch(() => {/* sync failure is non-fatal; background polling will retry */});
+  }, []);
 
   // Loan calc
   const [loanAmount, setLoanAmount] = useState('');

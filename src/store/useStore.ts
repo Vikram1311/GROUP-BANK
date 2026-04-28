@@ -47,9 +47,13 @@ const SHARED_STATE_URL = import.meta.env.VITE_SHARED_STATE_URL?.trim() || '';
 const SHARED_STATE_TOKEN = import.meta.env.VITE_SHARED_STATE_TOKEN?.trim() || '';
 const SHARED_STATE_METHOD = (import.meta.env.VITE_SHARED_STATE_METHOD?.trim() || 'PUT').toUpperCase();
 const SYNC_DEBOUNCE_MS = 600;
+// Delay before retrying a failed sync after app resume (gives network time to reconnect)
+const NETWORK_READY_RETRY_DELAY_MS = 3_000;
 
 // JSONBin.io dedicated sync support
-const JSONBIN_BIN_ID = import.meta.env.VITE_JSONBIN_BIN_ID?.trim() || '';
+// Bin ID is non-secret (public identifier). Hardcoded as fallback so sync works even
+// if VITE_JSONBIN_BIN_ID is not set in the deployment environment (e.g. Vercel).
+const JSONBIN_BIN_ID = import.meta.env.VITE_JSONBIN_BIN_ID?.trim() || '69ef2309856a6821897909da';
 const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY?.trim() || '';
 const JSONBIN_READ_URL = JSONBIN_BIN_ID ? `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest` : '';
 const JSONBIN_WRITE_URL = JSONBIN_BIN_ID ? `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}` : '';
@@ -1180,10 +1184,27 @@ if (typeof window !== 'undefined' && !(window as Window & { __shgSyncInit?: bool
   // Poll every 30 seconds so members see admin updates without reloading
   setInterval(() => void hydrateFromSharedState(), 30_000);
 
-  // Also sync immediately when the user switches back to this tab / app
+  // Sync when app becomes visible. On mobile (Capacitor), network may not be
+  // immediately available after the screen turns on, so we also retry once
+  // after a short delay to handle the "network not yet ready" case.
+  const syncOnResume = () => {
+    void hydrateFromSharedState();
+    setTimeout(() => void hydrateFromSharedState(), NETWORK_READY_RETRY_DELAY_MS);
+  };
+
+  // visibilitychange: fires on browser tab switch and in most Capacitor builds on app resume
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void hydrateFromSharedState();
+    if (document.visibilityState === 'visible') syncOnResume();
   });
+
+  // pageshow: fires when page is restored from bfcache (browser back/forward)
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) syncOnResume();
+  });
+
+  // Capacitor fires a native 'resume' event on document when the Android/iOS
+  // app returns to the foreground – this is the most reliable hook on mobile.
+  document.addEventListener('resume', () => syncOnResume());
 }
 
 // Immediately pushes local state to remote, then pulls to apply any even-newer remote state.
@@ -1191,8 +1212,11 @@ if (typeof window !== 'undefined' && !(window as Window & { __shgSyncInit?: bool
 // latest admin changes are flushed even if the background debounce push is still pending.
 const forceSyncWithRemote = async () => {
   if (!isCloudSyncEnabled()) return;
-  await pushSharedState(useStore.getState());
+  // Pull first so any newer remote state is applied before we push.
+  // This prevents accidentally overwriting newer remote data with stale local state.
   await hydrateFromSharedState();
+  // Then push the current (possibly just updated) state to remote.
+  await pushSharedState(useStore.getState());
 };
 
 export { hydrateFromSharedState, forceSyncWithRemote };
