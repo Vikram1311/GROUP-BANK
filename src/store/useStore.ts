@@ -207,13 +207,15 @@ const pickPersistedState = (state: AppState): PersistedStateSlice => ({
   lastDataUpdateAt: state.lastDataUpdateAt,
 });
 
-const getSyncHeaders = (): Record<string, string> => {
+const getJsonbinHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (USE_JSONBIN) {
-    if (JSONBIN_API_KEY) headers['X-Master-Key'] = JSONBIN_API_KEY;
-  } else if (SHARED_STATE_TOKEN) {
-    headers.Authorization = `Bearer ${SHARED_STATE_TOKEN}`;
-  }
+  if (JSONBIN_API_KEY) headers['X-Master-Key'] = JSONBIN_API_KEY;
+  return headers;
+};
+
+const getApiHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (SHARED_STATE_TOKEN) headers.Authorization = `Bearer ${SHARED_STATE_TOKEN}`;
   return headers;
 };
 
@@ -237,32 +239,69 @@ const parseSharedEnvelope = (payload: unknown): SharedStateEnvelope | null => {
   };
 };
 
+const fetchFromJsonbin = async (): Promise<SharedStateEnvelope | null> => {
+  if (!USE_JSONBIN) return null;
+  const response = await fetch(JSONBIN_READ_URL, {
+    method: 'GET',
+    headers: getJsonbinHeaders(),
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`JSONBin read HTTP ${response.status}`);
+  const payload = await response.json();
+  const data =
+    payload && typeof payload === 'object' && 'record' in (payload as Record<string, unknown>)
+      ? (payload as { record: unknown }).record
+      : payload;
+  return parseSharedEnvelope(data);
+};
+
+const fetchFromApi = async (): Promise<SharedStateEnvelope | null> => {
+  if (!SHARED_STATE_URL) return null;
+  const response = await fetch(SHARED_STATE_URL, {
+    method: 'GET',
+    headers: getApiHeaders(),
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`API read HTTP ${response.status}`);
+  const payload = await response.json();
+  return parseSharedEnvelope(payload);
+};
+
 const fetchSharedState = async (): Promise<SharedStateEnvelope | null> => {
   if (!isCloudSyncEnabled()) return null;
-  try {
-    const url = USE_JSONBIN ? JSONBIN_READ_URL : SHARED_STATE_URL;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: getSyncHeaders(),
-      cache: 'no-store',
-    });
-    if (!response.ok) {
-      _lastSyncError = `Read failed: HTTP ${response.status}`;
-      _notifySyncListeners();
-      return null;
+
+  const results = await Promise.allSettled([
+    fetchFromJsonbin(),
+    fetchFromApi(),
+  ]);
+
+  const envelopes: SharedStateEnvelope[] = [];
+  const errors: string[] = [];
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      envelopes.push(result.value);
+    } else if (result.status === 'rejected') {
+      errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
     }
-    const payload = await response.json();
-    // JSONBin wraps the data inside a "record" key: { record: {...}, metadata: {...} }
-    const data =
-      USE_JSONBIN && payload && typeof payload === 'object' && 'record' in (payload as Record<string, unknown>)
-        ? (payload as { record: unknown }).record
-        : payload;
-    return parseSharedEnvelope(data);
-  } catch (err) {
-    _lastSyncError = `Read error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  if (envelopes.length === 0) {
+    _lastSyncError = errors.length > 0 ? `Read error: ${errors.join('; ')}` : 'Read error: no data';
     _notifySyncListeners();
     return null;
   }
+
+  if (errors.length > 0) {
+    _lastSyncError = `Partial read error: ${errors.join('; ')}`;
+    _notifySyncListeners();
+  }
+
+  // Return the envelope with the latest updatedAt timestamp
+  return envelopes.reduce((best, cur) =>
+    (best.updatedAt && (!cur.updatedAt || best.updatedAt >= cur.updatedAt)) ? best : cur,
+    envelopes[0]
+  );
 };
 
 const pushSharedState = async (state: AppState): Promise<void> => {
@@ -272,25 +311,46 @@ const pushSharedState = async (state: AppState): Promise<void> => {
     updatedAt: state.lastDataUpdateAt,
     state: pickPersistedState(state),
   };
-  try {
-    const url = USE_JSONBIN ? JSONBIN_WRITE_URL : SHARED_STATE_URL;
-    const method = USE_JSONBIN ? 'PUT' : resolvedSyncMethod;
-    const response = await fetch(url, {
-      method,
-      headers: getSyncHeaders(),
-      body: JSON.stringify(body),
-      keepalive: true,
-    });
-    if (!response.ok) {
-      _lastSyncError = `Write failed: HTTP ${response.status}`;
-      _notifySyncListeners();
-    } else {
-      _lastSyncError = null;
-      _lastSyncAt = new Date().toISOString();
-      _notifySyncListeners();
+  const bodyJson = JSON.stringify(body);
+
+  const pushPromises: Promise<void>[] = [];
+  if (USE_JSONBIN) {
+    pushPromises.push((async () => {
+      const response = await fetch(JSONBIN_WRITE_URL, {
+        method: 'PUT',
+        headers: getJsonbinHeaders(),
+        body: bodyJson,
+        keepalive: true,
+      });
+      if (!response.ok) throw new Error(`JSONBin write HTTP ${response.status}`);
+    })());
+  }
+  if (SHARED_STATE_URL) {
+    pushPromises.push((async () => {
+      const response = await fetch(SHARED_STATE_URL, {
+        method: resolvedSyncMethod,
+        headers: getApiHeaders(),
+        body: bodyJson,
+        keepalive: true,
+      });
+      if (!response.ok) throw new Error(`API write HTTP ${response.status}`);
+    })());
+  }
+
+  const results = await Promise.allSettled(pushPromises);
+  const errors: string[] = [];
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
     }
-  } catch (err) {
-    _lastSyncError = `Write error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  if (errors.length > 0) {
+    _lastSyncError = `Write error: ${errors.join('; ')}`;
+    _notifySyncListeners();
+  } else {
+    _lastSyncError = null;
+    _lastSyncAt = new Date().toISOString();
     _notifySyncListeners();
   }
 };
