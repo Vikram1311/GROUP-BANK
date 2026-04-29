@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import type { Member, Loan, Contribution, EMIRecord, AppSettings, Notification, PenaltyRecord, ManualInterestRecord, PaymentRequest } from '../types';
 import { generateId, getDefaultPassword, calculateLoanDetails, getMonthKey, getContributionDueDate, calculatePenaltyDays } from '../utils/calculations';
+import { getDb, isFirebaseConfigured, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID } from '../firebase';
 
 const DEFAULT_MEMBERS: Omit<Member, 'id'>[] = [
   { name: 'ADMIN', mobile: '9315341037', password: '1311', joiningDate: '2025-09-10', isAdmin: true, isActive: true, language: 'hi' },
@@ -54,21 +56,14 @@ export const subscribeSyncStatus = (fn: () => void): (() => void) => {
   _syncStatusListeners.push(fn);
   return () => { _syncStatusListeners = _syncStatusListeners.filter(f => f !== fn); };
 };
+
+// ── Generic REST sync (advanced / alternative) ───────────────────────────────
 const SHARED_STATE_URL = import.meta.env.VITE_SHARED_STATE_URL?.trim() || '';
 const SHARED_STATE_TOKEN = import.meta.env.VITE_SHARED_STATE_TOKEN?.trim() || '';
 const SHARED_STATE_METHOD = (import.meta.env.VITE_SHARED_STATE_METHOD?.trim() || 'PUT').toUpperCase();
 const SYNC_DEBOUNCE_MS = 600;
 // Delay before retrying a failed sync after app resume (gives network time to reconnect)
 const NETWORK_READY_RETRY_DELAY_MS = 3_000;
-
-// JSONBin.io dedicated sync support
-// Bin ID is non-secret (public identifier). Hardcoded as fallback so sync works even
-// if VITE_JSONBIN_BIN_ID is not set in the deployment environment (e.g. Vercel).
-const JSONBIN_BIN_ID = import.meta.env.VITE_JSONBIN_BIN_ID?.trim() || '69ef2309856a6821897909da';
-const JSONBIN_API_KEY = import.meta.env.VITE_JSONBIN_API_KEY?.trim() || '';
-const JSONBIN_READ_URL = JSONBIN_BIN_ID ? `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest` : '';
-const JSONBIN_WRITE_URL = JSONBIN_BIN_ID ? `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}` : '';
-const USE_JSONBIN = !!JSONBIN_BIN_ID;
 
 type SyncMethod = 'PUT' | 'POST' | 'PATCH';
 const allowedSyncMethods: SyncMethod[] = ['PUT', 'POST', 'PATCH'];
@@ -207,19 +202,13 @@ const pickPersistedState = (state: AppState): PersistedStateSlice => ({
   lastDataUpdateAt: state.lastDataUpdateAt,
 });
 
-const getJsonbinHeaders = (): Record<string, string> => {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (JSONBIN_API_KEY) headers['X-Master-Key'] = JSONBIN_API_KEY;
-  return headers;
-};
-
 const getApiHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (SHARED_STATE_TOKEN) headers.Authorization = `Bearer ${SHARED_STATE_TOKEN}`;
   return headers;
 };
 
-const isCloudSyncEnabled = () => USE_JSONBIN || !!SHARED_STATE_URL;
+const isCloudSyncEnabled = () => isFirebaseConfigured() || !!SHARED_STATE_URL;
 
 const parseSharedEnvelope = (payload: unknown): SharedStateEnvelope | null => {
   if (!payload || typeof payload !== 'object') return null;
@@ -239,21 +228,23 @@ const parseSharedEnvelope = (payload: unknown): SharedStateEnvelope | null => {
   };
 };
 
-const fetchFromJsonbin = async (): Promise<SharedStateEnvelope | null> => {
-  if (!USE_JSONBIN) return null;
-  const response = await fetch(JSONBIN_READ_URL, {
-    method: 'GET',
-    headers: getJsonbinHeaders(),
-    cache: 'no-store',
-  });
-  if (!response.ok) throw new Error(`JSONBin read HTTP ${response.status}`);
-  const payload = await response.json();
-  const data =
-    payload && typeof payload === 'object' && 'record' in (payload as Record<string, unknown>)
-      ? (payload as { record: unknown }).record
-      : payload;
-  return parseSharedEnvelope(data);
+// ── Firebase Firestore fetch / push ──────────────────────────────────────────
+
+const fetchFromFirestore = async (): Promise<SharedStateEnvelope | null> => {
+  const db = getDb();
+  if (!db) return null;
+  const snap = await getDoc(doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID));
+  if (!snap.exists()) return null;
+  return parseSharedEnvelope(snap.data());
 };
+
+const pushToFirestore = async (body: SharedStateEnvelope): Promise<void> => {
+  const db = getDb();
+  if (!db) return;
+  await setDoc(doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID), body);
+};
+
+// ── Generic REST fetch / push ────────────────────────────────────────────────
 
 const fetchFromApi = async (): Promise<SharedStateEnvelope | null> => {
   if (!SHARED_STATE_URL) return null;
@@ -271,7 +262,7 @@ const fetchSharedState = async (): Promise<SharedStateEnvelope | null> => {
   if (!isCloudSyncEnabled()) return null;
 
   const results = await Promise.allSettled([
-    fetchFromJsonbin(),
+    fetchFromFirestore(),
     fetchFromApi(),
   ]);
 
@@ -314,17 +305,11 @@ const pushSharedState = async (state: AppState): Promise<void> => {
   const bodyJson = JSON.stringify(body);
 
   const pushPromises: Promise<void>[] = [];
-  if (USE_JSONBIN) {
-    pushPromises.push((async () => {
-      const response = await fetch(JSONBIN_WRITE_URL, {
-        method: 'PUT',
-        headers: getJsonbinHeaders(),
-        body: bodyJson,
-        keepalive: true,
-      });
-      if (!response.ok) throw new Error(`JSONBin write HTTP ${response.status}`);
-    })());
+
+  if (isFirebaseConfigured()) {
+    pushPromises.push(pushToFirestore(body));
   }
+
   if (SHARED_STATE_URL) {
     pushPromises.push((async () => {
       const response = await fetch(SHARED_STATE_URL, {
@@ -1275,9 +1260,6 @@ if (typeof window !== 'undefined' && !(window as Window & { __shgSyncInit?: bool
 
   void hydrateFromSharedState();
 
-  // Poll every 30 seconds so members see admin updates without reloading
-  setInterval(() => void hydrateFromSharedState(), 30_000);
-
   // Sync when app becomes visible. On mobile (Capacitor), network may not be
   // immediately available after the screen turns on, so we also retry once
   // after a short delay to handle the "network not yet ready" case.
@@ -1299,6 +1281,48 @@ if (typeof window !== 'undefined' && !(window as Window & { __shgSyncInit?: bool
   // Capacitor fires a native 'resume' event on document when the Android/iOS
   // app returns to the foreground – this is the most reliable hook on mobile.
   document.addEventListener('resume', () => syncOnResume());
+
+  // ── Firestore real-time listener ────────────────────────────────────────────
+  // If Firebase is configured, subscribe to onSnapshot for instant push updates.
+  // This replaces the old 30-second polling interval used with JSONBin.
+  // The unsubscribe function is stored so it could be called on cleanup if needed.
+  const db = getDb();
+  if (db) {
+    const _unsubscribeFirestore = onSnapshot(
+      doc(db, FIRESTORE_COLLECTION, FIRESTORE_DOC_ID),
+      (snap) => {
+        if (!snap.exists()) return;
+        const envelope = parseSharedEnvelope(snap.data());
+        if (!envelope?.state) return;
+
+        const local = useStore.getState();
+        const remoteTimestamp = asTimestamp(envelope.state.lastDataUpdateAt ?? envelope.updatedAt);
+        const localTimestamp = asTimestamp(local.lastDataUpdateAt);
+
+        if (remoteTimestamp > localTimestamp) {
+          useStore.setState({
+            ...envelope.state,
+            currentUserId: local.currentUserId,
+            language: local.language,
+            lastDataUpdateAt: envelope.state.lastDataUpdateAt ?? envelope.updatedAt,
+          });
+        }
+        _lastSyncError = null;
+        _lastSyncAt = new Date().toISOString();
+        _notifySyncListeners();
+      },
+      (error) => {
+        _lastSyncError = `Realtime sync error: ${error.message}`;
+        _notifySyncListeners();
+      }
+    );
+    // Expose unsubscribe so callers can clean up if needed (e.g. in tests).
+    (window as Window & { __shgUnsubscribeFirestore?: () => void }).__shgUnsubscribeFirestore =
+      _unsubscribeFirestore;
+  } else {
+    // Firestore not configured: fall back to 30-second polling (generic REST or offline)
+    setInterval(() => void hydrateFromSharedState(), 30_000);
+  }
 }
 
 // Immediately pushes local state to remote, then pulls to apply any even-newer remote state.

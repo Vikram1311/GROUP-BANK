@@ -282,7 +282,7 @@ export default function AdminPanel() {
             <div>
               <p className="font-semibold text-red-300">Cloud Sync Error</p>
               <p className="text-red-400 text-xs mt-0.5">{syncStatus.lastSyncError}</p>
-              <p className="text-red-400/70 text-xs mt-1">Vercel में <code className="bg-red-900/40 px-1 rounded">VITE_JSONBIN_API_KEY</code> और <code className="bg-red-900/40 px-1 rounded">VITE_JSONBIN_BIN_ID</code> check करें, फिर redeploy करें।</p>
+              <p className="text-red-400/70 text-xs mt-1">Vercel में <code className="bg-red-900/40 px-1 rounded">VITE_FIREBASE_API_KEY</code>, <code className="bg-red-900/40 px-1 rounded">VITE_FIREBASE_PROJECT_ID</code> और <code className="bg-red-900/40 px-1 rounded">VITE_FIREBASE_APP_ID</code> check करें, फिर redeploy करें।</p>
             </div>
           </div>
         )}
